@@ -201,6 +201,7 @@ readonly MAX_WAITSOCK=10                # waiting at max 10 seconds for socket r
 readonly CCS_MAX_WAITSOCK=5             # for the two CCS payload (each)
 readonly HEARTBLEED_MAX_WAITSOCK=8      # for the heartbleed payload
 STARTTLS_SLEEP=${STARTTLS_SLEEP:-1}     # max time to wait on a socket replay for STARTTLS
+STARTTLS_SLEEP_TARPIT=${STARTTLS_SLEEP_TARPIT:-${STARTTLS_SLEEP}}	# max time to wait on a socket replay for STARTTLS, Tarpit (single-byte) mode
 FAST_STARTTLS=${FAST_STARTTLS:-true}    #at the cost of reliabilty decrease the handshakes for STARTTLS
 USLEEP_SND=${USLEEP_SND:-0.1}           # sleep time for general socket send
 USLEEP_REC=${USLEEP_REC:-0.2}           # sleep time for general socket receive
@@ -6828,6 +6829,32 @@ starttls_just_read(){
      return 0
 }
 
+read_tarpit_line(){
+     # this reads one line, terminated by \n, with byte-wise timeout applied.
+     # One strategy of mostly smtp tarpits is to issue the characters
+     # one-by-one, with some short delay between them. Badly programmed
+     # clients have a timeout for receiving the whole line but not for receiving
+     # single bytes, closing the connection early when a standard client
+     # correctly waits for more data.
+     local out_var="$1"
+     local loc_ret=""
+     local fin=0
+     local ret=0
+     while [ $fin -eq 0 ]; do
+          if read -d '' -N 1 -r -t $STARTTLS_SLEEP_TARPIT one_char; then
+              if [ "${one_char}" == $'\n' ]; then
+                   fin=1
+              else
+                   loc_ret+="${one_char}"
+              fi
+          else
+              ret=$?
+              fin=1
+          fi
+     done
+     declare "$out_var=$loc_ret"
+}
+
 starttls_full_read(){
      starttls_read_data=()
      local one_line=""
@@ -6865,6 +6892,30 @@ starttls_full_read(){
      done <&5
      ret=$?
      debugme echo "=== full read error/timeout ==="
+     if [ $ret -gt 128 ]; then
+          debugme echo "=== looks like a timeout: try again in Tarpit (single-byte) mode ==="
+          while read_tarpit_line one_line; do
+               debugme echo "S: ${one_line}"
+               if [[ $# -ge 3 ]]; then
+                    if [[ ${one_line} =~ $3 ]]; then
+                         ret_found=0
+                         debugme echo "^^^^^^^ that's what we were looking for ==="
+                    fi
+               fi
+               starttls_read_data+=("${one_line}")
+               if [[ ${one_line} =~ ${end_pattern} ]]; then
+                    debugme echo "=== full read finished ==="
+                    IFS="${oldIFS}"
+                    return ${ret_found}
+               fi
+               if [[ ! ${one_line} =~ ${cont_pattern} ]]; then
+                    debugme echo "=== full read syntax error, expected regex pattern ${cont_pattern} (cont) or ${end_pattern} (end) ==="
+                    IFS="${oldIFS}"
+                    return 2
+               fi
+          done <&5
+          ret=$?
+     fi
      IFS="${oldIFS}"
      return $ret
 }
