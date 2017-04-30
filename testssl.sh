@@ -6891,10 +6891,14 @@ starttls_full_read(){
           fi
      done <&5
      ret=$?
-     debugme echo "=== full read error/timeout ==="
+     debugme echo "=== full read error/timeout: $ret ==="
      if [ $ret -gt 128 ]; then
-          debugme echo "=== looks like a timeout: try again in Tarpit (single-byte) mode ==="
+          debugme echo "S: ${one_line}"
+          debugme echo "=== looks like a timeout. try again in Tarpit (single-byte) mode ==="
+          prev_data="$one_line"
           while read_tarpit_line one_line; do
+               one_line="${prev_data}${one_line}"
+               prev_data=
                debugme echo "S: ${one_line}"
                if [[ $# -ge 3 ]]; then
                     if [[ ${one_line} =~ $3 ]]; then
@@ -6915,6 +6919,7 @@ starttls_full_read(){
                fi
           done <&5
           ret=$?
+          debugme echo "=== full read tarpit error/timeout: $ret ==="
      fi
      IFS="${oldIFS}"
      return $ret
