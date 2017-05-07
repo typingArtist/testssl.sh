@@ -6941,6 +6941,17 @@ starttls_postgres_dialog() {
      return $ret
 }
 
+starttls_mysql_dialog() {
+     debugme echo "=== starting mysql STARTTLS dialog ==="
+     local reSTARTTLS="\x20\x00\x00\x01\x05\x0a\x00\x00\x00\x00\x00\x01\x08\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+     # flush input (ignore server greeting/capabilities for now)
+     timeout 2 dd of=/dev/null <&5 2>/dev/null
+     starttls_just_send "${reSTARTTLS}"                    && debugme echo "initiated STARTTLS"
+     local ret=$?
+     debugme echo "=== finished mysql STARTTLS dialog with ${ret} ==="
+     return $ret
+}
+
 # arg for a fd doesn't work here
 fd_socket() {
      local jabber=""
@@ -7017,6 +7028,9 @@ EOF
                     ;;
                postgres|postgress) # Postgres SQL, see http://www.postgresql.org/docs/devel/static/protocol-message-formats.html
                     starttls_postgres_dialog
+                    ;;
+               mysql|mysqls) # MySQL, see 
+                    starttls_mysql_dialog
                     ;;
                *) # we need to throw an error here -- otherwise testssl.sh treats the STARTTLS protocol as plain SSL/TLS which leads to FP
                     fatal "FIXME: STARTTLS protocol $STARTTLS_PROTOCOL is not yet supported" -4
@@ -12450,8 +12464,8 @@ parse_cmd_line() {
                     STARTTLS_PROTOCOL="$(parse_opt_equal_sign "$1" "$2")"
                     [[ $? -eq 0 ]] && shift
                     case $STARTTLS_PROTOCOL in
-                         ftp|smtp|pop3|imap|xmpp|telnet|ldap|nntp|postgres) ;;
-                         ftps|smtps|pop3s|imaps|xmpps|telnets|ldaps|nntps|postgress) ;;
+                         ftp|smtp|pop3|imap|xmpp|telnet|ldap|nntp|postgres|mysql) ;;
+                         ftps|smtps|pop3s|imaps|xmpps|telnets|ldaps|nntps|postgress|mysqls) ;;
                          *)   tmln_magenta "\nunrecognized STARTTLS protocol \"$1\", see help" 1>&2
                               help 1 ;;
                     esac
